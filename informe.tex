@@ -1,0 +1,245 @@
+\documentclass[12pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot,es-noshorthands,es-tabla]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{float}
+\usepackage{hyperref}
+
+\title{Taller 1: Sudoku como CSP en MiniZinc}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Sudoku}
+
+\subsection{Descripción del problema}
+
+El Sudoku consiste en completar una cuadrícula de $9\times 9$ con valores entre 1 y 9, de manera que no se repita ningún valor en una misma fila, columna o subcuadrícula de $3\times 3$. El Taller~1 solicita modelar el problema como un CSP, implementarlo en MiniZinc, probar diferentes implementaciones de las restricciones y analizar diferentes estrategias de búsqueda~\cite{taller1}.
+
+Desde la perspectiva de programación por restricciones, el problema se formula mediante variables, dominios y restricciones. La implementación utiliza arreglos multidimensionales, comprensiones de listas y restricciones globales, conceptos trabajados en el material de clase~\cite{clase5}.
+
+\subsection{Modelo CSP}
+
+Se define una variable de decisión para cada celda del tablero:
+\[
+X=\{\,x_{ij}\mid i,j\in\{1,\ldots,9\}\,\},
+\]
+con dominio
+\[
+x_{ij}\in\{1,\ldots,9\}.
+\]
+Por tanto, el modelo contiene 81 variables de decisión.
+
+Las pistas iniciales del Sudoku se representan mediante una matriz de parámetros $p_{ij}$, donde $p_{ij}=0$ representa una celda vacía. Para cada pista se impone:
+\[
+p_{ij}\neq 0 \;\Rightarrow\; x_{ij}=p_{ij}.
+\]
+
+\subsubsection{Restricciones de filas}
+
+Cada fila debe contener valores diferentes:
+\[
+\forall i\in\{1,\ldots,9\}:\quad
+\operatorname{AllDifferent}(x_{i1},x_{i2},\ldots,x_{i9}).
+\]
+
+\subsubsection{Restricciones de columnas}
+
+De forma análoga:
+\[
+\forall j\in\{1,\ldots,9\}:\quad
+\operatorname{AllDifferent}(x_{1j},x_{2j},\ldots,x_{9j}).
+\]
+
+\subsubsection{Restricciones de regiones}
+
+Para cada una de las nueve regiones de $3\times 3$:
+\[
+\forall b_r,b_c\in\{0,1,2\}:\quad
+\operatorname{AllDifferent}\bigl(x_{3b_r+r,\,3b_c+c}\bigr)_{r,c=1}^{3}.
+\]
+
+Estas tres familias de restricciones representan completamente las reglas del Sudoku.
+
+\subsection{Implementación de las restricciones}
+
+Se utilizaron dos implementaciones principales.
+
+\subsubsection{Implementación con \texorpdfstring{\texttt{all\_different}}{all\_different}}
+
+La primera implementación utiliza la restricción global
+\[
+\operatorname{AllDifferent}(x_1,\ldots,x_n)
+\]
+para cada fila, columna y región. Esta representación es compacta y permite que el \emph{solver} utilice un propagador especializado para la restricción global.
+
+\subsubsection{Implementación mediante desigualdades binarias}
+
+La segunda implementación reemplaza cada restricción \texttt{all\_different} por restricciones binarias:
+\[
+x_i\neq x_j \qquad \forall\, i<j.
+\]
+Por ejemplo, para cada fila $i$:
+\[
+\forall j_1,j_2\in\{1,\ldots,9\},\ j_1<j_2:\quad
+x_{ij_1}\neq x_{ij_2}.
+\]
+Para nueve variables existen
+\[
+\binom{9}{2}=36
+\]
+pares por cada fila, y de manera equivalente para cada columna y región.
+
+La ventaja de esta implementación es su explicitud: cada conflicto entre dos celdas queda representado directamente. La desventaja es que genera un modelo aplanado considerablemente más grande que el obtenido utilizando la restricción global \texttt{all\_different}.
+
+\subsection{Estrategias de búsqueda}
+
+Se evaluaron diferentes estrategias de distribución. La búsqueda se define mediante una anotación \texttt{int\_search}, indicando el conjunto de variables, la estrategia de selección de variables, la estrategia de selección de valores y el método de exploración.
+
+Se utilizaron principalmente:
+
+\begin{itemize}
+    \item \texttt{input\_order}: selecciona las variables siguiendo el orden en que aparecen en el arreglo.
+    \item \texttt{first\_fail}: selecciona una variable con el dominio más restringido.
+    \item \texttt{indomain\_min}: prueba primero el menor valor disponible.
+    \item \texttt{complete}: realiza una búsqueda completa mediante ramificación.
+\end{itemize}
+
+La estrategia \texttt{first\_fail} sigue la idea de seleccionar primero una variable que tenga pocas alternativas, buscando detectar inconsistencias tempranamente.
+
+\subsection{Pruebas de búsqueda y restricciones}
+
+Se utilizaron dos instancias. La primera (S1) corresponde a un Sudoku clásico con una solución determinada. La segunda (S2) contiene pocas pistas y fue utilizada principalmente para generar un árbol de búsqueda suficientemente grande para comparar estrategias.
+
+Para la segunda instancia no se asumió unicidad de la solución, puesto que su objetivo experimental fue estudiar el comportamiento del árbol de búsqueda.
+
+Los principales resultados se presentan en la Tabla~\ref{tab:sudoku-estrategias}.
+
+\begin{table}[H]
+\centering
+\caption{Comparación de implementaciones y estrategias para Sudoku.}
+\label{tab:sudoku-estrategias}
+\begin{tabular}{lrrrrrc}
+\hline
+Modelo & Restr. & Nodos & Fallos & Prop. & Tiempo (s) & Instancia\\
+\hline
+V1 & 27  & 45 & 1 & 593 & 0.001044 & S2\\
+V2 & 818 & 42 & 0 & 748 & 0.000247 & S2\\
+V3 & 27  & 43 & 1 & 564 & 0.000285 & S2\\
+V4 & 27  & 40 & 0 & 536 & 0.000262 & S2\\
+V5 & 54  & 40 & 0 & 974 & 0.000282 & S2\\
+\hline
+\end{tabular}
+\end{table}
+
+En V1 se utilizó \texttt{all\_different} y la búsqueda estándar. V2 reemplazó las restricciones globales por desigualdades binarias. V3 utilizó \texttt{first\_fail}, mientras que V4 utilizó \texttt{input\_order}. V5 mantuvo la configuración de V4 e incorporó restricciones redundantes.
+
+Para la instancia S2, V4 exploró 40 nodos frente a 43 de V3 y 45 de V1. En esta prueba particular, \texttt{input\_order} produjo un árbol ligeramente menor que \texttt{first\_fail}. Este resultado es específico de la instancia y no permite concluir que una estrategia sea universalmente superior.
+
+V2 produjo muchas más restricciones aplanadas que V1 ($27 \rightarrow 818$), pero exploró 42 nodos y obtuvo un tiempo de búsqueda de $0.000247$~s. Esto muestra que el número de restricciones aplanadas no determina por sí solo el tiempo de ejecución.
+
+\subsection{Restricciones redundantes}
+
+En V5 se incorporaron restricciones de suma para filas y columnas,
+\[
+\forall i:\ \sum_{j=1}^{9}x_{ij}=45,
+\qquad
+\forall j:\ \sum_{i=1}^{9}x_{ij}=45,
+\]
+y para cada región:
+\[
+\forall b_r,b_c\in\{0,1,2\}:\quad
+\sum_{r=1}^{3}\sum_{c=1}^{3} x_{3b_r+r,\,3b_c+c}=45.
+\]
+
+Estas restricciones son redundantes porque cada conjunto contiene nueve variables, todas pertenecientes al dominio $\{1,\ldots,9\}$, y la restricción \texttt{all\_different} obliga a que aparezcan exactamente los nueve valores $\{1,2,\ldots,9\}$. Por tanto:
+\[
+\sum_{k=1}^{9}k=\frac{9(9+1)}{2}=45.
+\]
+
+Las restricciones de suma no modifican el conjunto de soluciones del Sudoku, pero pueden proporcionar información adicional al propagador.
+
+En la instancia S2, V4 y V5 exploraron el mismo número de nodos (40), pero V5 realizó más propagaciones ($536\rightarrow 974$). Por tanto, para esta instancia las restricciones redundantes no redujeron el árbol de búsqueda y sí aumentaron el trabajo de propagación. En la instancia S1 también se observó un incremento de propagaciones sin reducción de nodos. Esto evidencia que una restricción redundante puede ser correcta y útil como propagador, pero no necesariamente mejora el rendimiento en todas las instancias.
+
+\subsection{Rompimiento de simetrías (\emph{symmetry breaking})}
+
+Para estudiar el rompimiento de simetrías se construyó una instancia controlada en la que las tres primeras filas pertenecen a la misma banda (\emph{band}) y no contienen pistas. Por esta razón, una permutación de las filas 1, 2 y 3 produce otra solución válida. Existen $3!=6$ permutaciones posibles de estas filas.
+
+El modelo V6A no incorpora restricciones de rompimiento de simetrías. El modelo V6B agrega
+\[
+\text{fila}_1 \leq_{\mathrm{lex}} \text{fila}_2
+\qquad\text{y}\qquad
+\text{fila}_2 \leq_{\mathrm{lex}} \text{fila}_3
+\]
+mediante el predicado \texttt{lex\_lesseq} de MiniZinc.
+
+Para comparar los modelos se realizó enumeración de todas las soluciones (Tabla~\ref{tab:sudoku-simetria}).
+
+\begin{table}[H]
+\centering
+\caption{Efecto del rompimiento de simetrías.}
+\label{tab:sudoku-simetria}
+\begin{tabular}{lrr}
+\hline
+Métrica & V6A & V6B\\
+\hline
+Restricciones          & 27       & 29\\
+Soluciones             & 144      & 24\\
+Nodos                  & 291      & 81\\
+Fallos                 & 2        & 17\\
+Propagaciones          & 4569     & 1245\\
+Tiempo de búsqueda (s) & 0.005422 & 0.001088\\
+\hline
+\end{tabular}
+\end{table}
+
+El número de soluciones presenta la relación
+\[
+\frac{144}{24}=6,
+\]
+que corresponde exactamente a las seis permutaciones de las tres primeras filas. Por tanto, V6B conserva un representante de cada clase de soluciones equivalentes.
+
+También se observa una reducción del número de nodos ($291\rightarrow 81$), equivalente aproximadamente a
+\[
+\frac{291-81}{291}\times 100\approx 72.2\,\%.
+\]
+
+Las propagaciones disminuyeron de 4569 a 1245, mientras que el tiempo de búsqueda pasó de $0.005422$~s a $0.001088$~s.
+
+El número de fallos aumentó de 2 a 17. Esto se debe a que las restricciones de orden lexicográfico permiten detectar y descartar ramas que violan las condiciones de simetría. Por tanto, el número de fallos debe interpretarse conjuntamente con los nodos y las propagaciones.
+
+Las soluciones eliminadas pueden recuperarse eliminando las restricciones de rompimiento de simetrías y considerando las seis permutaciones de las filas 1, 2 y 3. De esta manera, el modelo V6B elimina representaciones redundantes, no clases completas de soluciones.
+
+\subsection{Análisis general}
+
+Las pruebas permitieron comparar dos aspectos diferentes del modelo. Primero, la implementación mediante \texttt{all\_different} produce una formulación compacta, mientras que la implementación mediante restricciones binarias genera un número considerablemente mayor de restricciones. Segundo, las estrategias de búsqueda pueden modificar el tamaño del árbol incluso cuando las restricciones del problema permanecen iguales.
+
+Para la instancia S2, las estrategias evaluadas produjeron entre 40 y 45 nodos, por lo que las diferencias fueron relativamente pequeñas. En cambio, el experimento controlado de rompimiento de simetrías mostró un efecto más evidente: la eliminación de soluciones equivalentes redujo el número de nodos aproximadamente un 72\,\%.
+
+Las restricciones redundantes también demostraron que agregar información al modelo no implica necesariamente una reducción del árbol. En V5 el número de propagaciones aumentó sin modificar el número de nodos respecto a V4.
+
+\subsection{Conclusiones}
+
+El modelo CSP utilizado representa correctamente las reglas fundamentales del Sudoku mediante 81 variables con dominio $\{1,\ldots,9\}$ y restricciones de diferencia para filas, columnas y regiones.
+
+La comparación de implementaciones mostró que \texttt{all\_different} permite expresar las restricciones de manera compacta, mientras que la formulación mediante desigualdades binarias genera un modelo aplanado considerablemente mayor.
+
+Las pruebas de búsqueda mostraron diferencias entre \texttt{first\_fail} e \texttt{input\_order}; sin embargo, dichas diferencias dependen de la instancia evaluada. Por esta razón, la elección de una estrategia de búsqueda debe sustentarse en resultados experimentales y no únicamente en la definición de la heurística.
+
+Las restricciones redundantes de suma son correctas porque cualquier fila, columna o región válida contiene exactamente los valores 1 a 9 y, por tanto, suma 45. Sin embargo, en las instancias estudiadas no redujeron el número de nodos.
+
+Finalmente, el experimento de rompimiento de simetrías permitió comprobar experimentalmente el beneficio de eliminar soluciones equivalentes. El orden lexicográfico de las tres primeras filas redujo las soluciones de 144 a 24 y los nodos de 291 a 81. Esto confirma que el rompimiento de simetrías puede reducir significativamente el espacio de búsqueda sin eliminar las clases de soluciones relevantes.
+
+\begin{thebibliography}{9}
+\bibitem{taller1} Taller 1. Enunciado del taller de programación por restricciones. (Completar referencia).
+\bibitem{clase5} Material de clase 5. Programación por restricciones en MiniZinc. (Completar referencia).
+\end{thebibliography}
+
+\end{document}
